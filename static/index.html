@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Daylight Sim</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; border-radius:0 !important; }
+body { background:#000000; color:#ffffff; font-family:'Segoe UI',sans-serif; display:flex; flex-direction:column; height:100vh; overflow:hidden; font-size:11px; }
+
+/* ── NAV ── */
+#nav { display:flex; align-items:center; gap:20px; padding:8px 15px; border-bottom:1px solid #333333; background:#000000; min-height:36px; }
+#nav a { color:#aaaaaa; text-decoration:none; text-transform:uppercase; letter-spacing:2px; font-size:10px; font-weight:bold; }
+#nav a:hover { color:#ffffff; }
+#nav a.active { color:#ffffff; border-bottom:1px solid #ffffff; padding-bottom:2px; }
+#nav-title { color:#ffffff; font-size:12px; text-transform:uppercase; letter-spacing:3px; font-weight:bold; margin-right:10px; }
+
+/* ── MAIN LAYOUT ── */
+#main { display:flex; flex:1; overflow:hidden; width:100%; }
+
+/* ── SIDEBAR ── */
+#sidebar { 
+  width: clamp(220px, 20vw, 300px); /* Shrinks on small screens, maxes at 300px */
+  background: #000000; padding: 15px; display: flex; flex-direction: column; 
+  gap: 12px; overflow-y: auto; border-right: 1px solid #ffffff; 
+}
+h3 { color:#aaaaaa; font-size:10px; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px; }
+.group { border:1px solid #333333; padding:10px; display:flex; flex-direction:column; gap:8px; background:#000000; }
+label { color:#cccccc; display:flex; justify-content:space-between; align-items:center; }
+
+input[type=range] { -webkit-appearance:none; appearance:none; width:100%; background:transparent; }
+input[type=range]:focus { outline:none; }
+input[type=range]::-webkit-slider-runnable-track { width:100%; height:2px; cursor:pointer; background:#ffffff; }
+input[type=range]::-webkit-slider-thumb { height:12px; width:12px; border-radius:50% !important; background:#000000; border:2px solid #ffffff; cursor:pointer; -webkit-appearance:none; appearance:none; margin-top:-5px; }
+input[type=range]::-moz-range-track { width:100%; height:2px; cursor:pointer; background:#ffffff; }
+input[type=range]::-moz-range-thumb { height:12px; width:12px; border-radius:50% !important; background:#000000; border:2px solid #ffffff; cursor:pointer; }
+
+input[type=number] { width:65px; background:#000000; border:1px solid #ffffff; color:#ffffff; padding:3px 5px; font-size:10px; outline:none; }
+input[type=number]:focus { border-color:#aaaaaa; }
+
+.btn { padding:7px 10px; border:1px solid #ffffff; cursor:pointer; font-weight:bold; transition:all .15s; width:100%; font-size:10px; background:#000000; color:#ffffff; text-transform:uppercase; letter-spacing:1px; }
+.btn:hover { background:#ffffff; color:#000000; }
+.trace { background:#ffffff; color:#000000; font-size:12px; margin-top:5px; padding:10px; border:2px solid #ffffff; }
+.trace:hover { background:#000000; color:#ffffff; }
+
+.ci { background:#000000; padding:8px; cursor:pointer; border:1px solid #333333; transition:border-color 0.1s; }
+.ci:hover { border-color:#aaaaaa; }
+.ci.sel { border:1px solid #ffffff; background:#111111; }
+.ci .cn { font-weight:bold; color:#ffffff; text-transform:uppercase; }
+.ci .cs { color:#888888; margin-top:3px; font-size:9px; font-family:monospace; }
+#sp { display:none; flex-direction:column; gap:8px; }
+#sp.vis { display:flex; }
+
+/* ── CANVAS ── */
+#canvas-wrap { flex:1; position:relative; overflow:hidden; min-width:0; background:#ffffff; }
+canvas { display:block; position:absolute; top:0; left:0; }
+
+/* ── DATA PANEL ── */
+#datapanel { 
+  width: clamp(240px, 25vw, 350px); 
+  background: #000000; border-left: 1px solid #ffffff; display: flex; 
+  flex-direction: column; overflow: hidden; 
+}
+#datapanel-header { padding:15px; border-bottom:1px solid #ffffff; display:flex; justify-content:space-between; align-items:center; }
+#datapanel-header span { color:#ffffff; font-size:14px; font-weight:bold; text-transform:uppercase; letter-spacing:2px; }
+#btn-csv { background:#ffffff; color:#000000; border:1px solid #ffffff; padding:5px 10px; cursor:pointer; font-size:10px; font-weight:bold; text-transform:uppercase; }
+#btn-csv:hover { background:#000000; color:#ffffff; }
+#datapanel-body { flex:1; overflow-y:auto; padding:10px; display:flex; flex-direction:column; gap:10px; }
+
+.ds { background:#000000; padding:10px; border:1px solid #333333; }
+.ds-title { color:#ffffff; font-size:11px; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px; border-bottom:1px solid #333333; padding-bottom:4px; }
+.dr { display:flex; justify-content:space-between; align-items:center; padding:3px 0; border-bottom:1px dashed #333333; }
+.dr:last-child { border-bottom:none; }
+.dk { color:#aaaaaa; }
+.dv { color:#ffffff; font-family:monospace; font-size:11px; }
+
+.eff-bar-wrap { margin-top:6px; background:#222222; height:8px; overflow:hidden; border:1px solid #555555; }
+.eff-bar { height:100%; background:#ffffff; transition:width .3s; }
+
+table.comp-table { width:100%; border-collapse:collapse; font-size:10px; margin-top:5px; }
+table.comp-table th { color:#ffffff; text-align:left; padding:4px; border-bottom:1px solid #555555; font-weight:bold; text-transform:uppercase; }
+table.comp-table td { padding:4px; color:#cccccc; border-bottom:1px dotted #333333; font-family:monospace; }
+table.comp-table tr:hover td { background:#111111; color:#ffffff; }
+
+#no-data { color:#888888; text-align:center; margin-top:40px; font-size:12px; text-transform:uppercase; letter-spacing:1px; }
+
+/* ── GLOBE STYLES ── */
+#globe-wrapper {
+  position: absolute;
+  bottom: 2%;
+  right: 2%;
+  width: clamp(100px, 15vw, 160px); /* Scales with the screen */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  z-index: 10;
+}
+#globe-label {
+  color: #000000;
+  font-size: 10px;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  pointer-events: none; 
+}
+#globe-container {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1; /* Keeps it a perfect circle regardless of width */
+  height: auto;
+  border-radius: 50% !important;
+  overflow: hidden;
+  cursor: crosshair; 
+  border: 0px solid #333333; 
+  background: #a3b7fa; 
+} 
+
+/* Forces the 3D canvas to perfectly fill the circular cutout */
+#globe-container canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+@media (max-width: 850px) {
+  body { height: auto; overflow-y: auto; }
+  #main { flex-direction: column; overflow: visible; }
+  #sidebar, #datapanel { 
+    width: 100%; max-width: 100%; 
+    border-right: none; border-left: none; border-bottom: 1px solid #ffffff; 
+    overflow: visible;
+  }
+  #canvas-wrap { min-height: 50vh; } /* Canvas takes half screen on mobile */
+  #globe-wrapper { bottom: 5%; right: 5%; width: 120px; }
+}
+
+</style>
+</head>
+<body>
+
+<!-- ── NAV ── -->
+<div id="nav">
+  <span id="nav-title">Daylight Sim</span>
+  <a href="/" class="active">Simulator</a>
+  <a href="/workbench">Workbench</a>
+</div>
+
+<!-- ── MAIN ── -->
+<div id="main">
+
+  <div id="sidebar">
+    <div class="group">
+        <button class="btn" onclick="loadFromWorkbench()" style="margin-top:4px;">Load from Workbench</button>
+      <h3>Location & Time</h3>
+      <label>Latitude <span id="latv">45°</span></label>
+      <input type="range" id="lat" min="-90" max="90" value="45" oninput="latv.textContent=this.value+'°';draw()">
+      <label>Day of Year <span id="dayv">172</span></label>
+      <input type="range" id="day" min="1" max="365" value="172" oninput="dayv.textContent=this.value;draw()">
+      <label>Time <span id="timev">12:00</span></label>
+      <input type="range" id="time" min="0" max="23.9" step="0.1" value="12" oninput="timev.textContent=formatTime(this.value);draw()">
+      <label>Sys Azimuth <span id="sysazv">180°</span></label>
+      <input type="range" id="sysaz" min="0" max="360" value="180" oninput="sysazv.textContent=this.value+'°';draw()">
+      <label>Base DNI (W/m²) <input type="number" id="dni" value="900" min="0" max="1200" oninput="draw()"></label>
+      <label>Base DHI (W/m²) <input type="number" id="dhi" value="150" min="0" max="400" oninput="draw()"></label>
+      <label>Rays <span id="rv">80</span></label>
+      <input type="range" id="rc" min="10" max="300" value="80" oninput="rv.textContent=this.value">
+      <label>Max Bounces <span id="mbv">12</span></label>
+      <input type="range" id="mb" min="1" max="50" value="12" oninput="mbv.textContent=this.value">
+    </div>
+
+    <div class="group">
+      <h3>Source Line</h3>
+      <label>Y <span id="syv">2.5</span></label>
+      <input type="range" id="sry" min="-4" max="5" step="0.1" value="2.5" oninput="State.sourceY=+this.value;syv.textContent=(+this.value).toFixed(1);draw()">
+      <label>X <span id="sxv">0.0</span></label>
+      <input type="range" id="srx" min="-4" max="4" step="0.1" value="0" oninput="State.sourceX=+this.value;sxv.textContent=(+this.value).toFixed(1);draw()">
+      <label>Width <span id="swv">3.0</span></label>
+      <input type="range" id="srw" min="0.5" max="6" step="0.1" value="3" oninput="State.sourceWidth=+this.value;swv.textContent=(+this.value).toFixed(1);draw()">
+    <label>Rotation <span id="src-rot-val">0°</span></label>
+    <input type="range" id="src-rot" min="-180" max="180" step="1" value="0" oninput="State.sourceRotation=+this.value; document.getElementById('src-rot-val').textContent=this.value+'°'; draw(); simSave();">
+  </div>
+
+    <div class="group">
+    <h3>Project (.dlsim)</h3>
+    <div style="display:flex; gap:5px;">
+      <button class="btn" style="border-color:#00aaff; color:#00aaff;" onclick="saveProject()">Save</button>
+      <button class="btn" style="border-color:#00ff88; color:#00ff88;" onclick="triggerLoadProject()">Load</button>
+    </div>
+  </div>
+
+    <div class="group">
+      <h3>Add Components</h3>
+      <button class="btn" onclick="addComp('parabolic')">+ Parabolic Mirror</button>
+      <button class="btn" onclick="addComp('flat')">+ Flat Mirror</button>
+      <button class="btn" onclick="addComp('cpc')">+ CPC Mirror</button>
+      <button class="btn" onclick="addComp('glass')">+ Glass / DRF Panel</button>
+      <button class="btn" onclick="addComp('filter')" style="border-color:#00ff88; color:#00ff88; margin-top: 6px;">+ Filter Line (Sensor)</button>
+    </div>
+
+    <div class="group">
+      <h3>Object List</h3>
+      <div id="cl" style="display:flex;flex-direction:column;gap:5px;"></div>
+    </div>
+
+    <div id="sp" class="group">
+      <h3>Selected Object</h3>
+      <div id="sparams"></div>
+      <button class="btn" onclick="delComp()" style="border-color:#ff4444;color:#ff4444;">Delete Selection</button>
+    </div>
+
+    <button class="btn trace" onclick="runTrace()">Trace Rays</button>
+  </div>
+
+  <div id="canvas-wrap">
+    <canvas id="canvas"></canvas>
+    
+    <div id="globe-wrapper">
+      <div id="globe-label">[SET LOCATION]</div>
+      <div id="globe-container"></div>
+    </div>
+  </div>
+
+  <div id="datapanel">
+    <div id="datapanel-header">
+      <span>Data</span>
+      <button id="btn-csv" onclick="exportCSV()">Export CSV</button>
+    </div>
+    <div id="datapanel-body">
+      <div id="no-data">Run trace for metrics</div>
+    </div>
+  </div>
+
+</div> <!-- END MAIN -->
+
+<script src="/static/js/three.min.js"></script>
+<script src="/static/js/OrbitControls.js"></script>
+<script src="/static/js/state.js"></script>
+<script src="/static/js/utils.js"></script>
+<script src="/static/js/globe.js"></script>
+<script src="/static/js/scene.js"></script>
+<script src="/static/js/controls.js"></script>
+<script src="/static/js/datapanel.js"></script>
+<script src="/static/js/api.js"></script>
+<script src="/static/js/project.js"></script>
+<script src="/static/js/main.js"></script>
+
+</body>
+</html>

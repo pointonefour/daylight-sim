@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Mirror Workbench — Daylight Sim</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; border-radius:0 !important; }
+body { background:#000000; color:#ffffff; font-family:'Segoe UI',sans-serif; display:flex; flex-direction:column; height:100vh; overflow:hidden; font-size:11px; }
+
+#nav { display:flex; align-items:center; gap:20px; padding:8px 15px; border-bottom:1px solid #333333; min-height:36px; }
+#nav-title { color:#ffffff; font-size:12px; text-transform:uppercase; letter-spacing:3px; font-weight:bold; margin-right:10px; }
+#nav a { color:#666666; text-decoration:none; text-transform:uppercase; letter-spacing:2px; font-size:10px; font-weight:bold; }
+#nav a:hover { color:#ffffff; }
+#nav a.active { color:#ffffff; border-bottom:1px solid #ffffff; padding-bottom:2px; }
+
+#main { display:flex; flex:1; overflow:hidden; }
+
+/* ── LEFT PANEL ── */
+#wb-sidebar { 
+  width: clamp(220px, 20vw, 300px); 
+  background: #000000; border-right: 1px solid #ffffff; padding: 10px; 
+  display: flex; flex-direction: column; gap: 8px; overflow-y: auto; 
+}
+h3 { color:#666666; font-size:9px; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px; }
+.wb-group { border:1px solid #222222; padding:9px; display:flex; flex-direction:column; gap:6px; }
+label { color:#bbbbbb; display:flex; justify-content:space-between; align-items:center; font-size:10px; }
+
+input[type=range] { -webkit-appearance:none; appearance: none; width:100%; background:transparent; }
+input[type=range]::-webkit-slider-runnable-track { height:1px; background:#ffffff; }
+input[type=range]::-webkit-slider-thumb { height:10px; width:10px; border-radius:50% !important; background:#000000; border:1.5px solid #ffffff; cursor:pointer; -webkit-appearance:none; margin-top:-4.5px; }
+input[type=range]::-moz-range-track { height:1px; background:#ffffff; }
+input[type=range]::-moz-range-thumb { height:10px; width:10px; border-radius:50% !important; background:#000000; border:1.5px solid #ffffff; cursor:pointer; }
+select { width:100%; background:#000000; border:1px solid #333333; color:#ffffff; padding:3px 5px; font-size:10px; outline:none; }
+
+.wb-btn { padding:5px 8px; border:1px solid #333333; cursor:pointer; font-weight:bold; transition:all .15s; background:#000000; color:#aaaaaa; text-transform:uppercase; letter-spacing:1px; font-size:9px; width:100%; margin-top:1px; }
+.wb-btn:hover { border-color:#ffffff; color:#ffffff; }
+.wb-btn.primary { background:#ffffff; color:#000000; border-color:#ffffff; }
+.wb-btn.hinge  { border-color:#888888; color:#cccccc; }
+.wb-btn.hinge:hover { background:#ffffff; color:#000000; border-color:#ffffff; }
+.wb-btn-row { display:flex; gap:4px; }
+.wb-btn-row .wb-btn { flex:1; }
+
+.wb-list-item { padding:6px 8px; border:1px solid #222222; cursor:pointer; transition:border-color .1s; }
+.wb-list-item:hover { border-color:#555555; }
+.wb-list-item.sel { border-color:#ffffff; background:#0a0a0a; }
+.wb-li-name { display:block; font-weight:bold; color:#ffffff; text-transform:uppercase; font-size:10px; }
+.wb-li-info { display:block; color:#555555; font-size:9px; font-family:monospace; margin-top:2px; }
+
+/* ── CANVAS ── */
+#wb-canvas-wrap { flex:1; position:relative; overflow:hidden; background:#ffffff; }
+canvas { display:block; position:absolute; top:0; left:0; }
+
+/* ── RIGHT PANEL ── */
+#wb-datapanel { 
+  width: clamp(240px, 25vw, 350px); 
+  background: #000000; border-left: 1px solid #ffffff; display: flex; 
+  flex-direction: column; overflow: hidden; 
+}
+#wb-data-header { padding:10px 12px; border-bottom:1px solid #333333; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:4px; }
+#wb-data-header span { color:#ffffff; font-size:11px; font-weight:bold; text-transform:uppercase; letter-spacing:2px; }
+.wb-export-row { display:flex; gap:4px; }
+.wb-export-row .wb-btn { width:auto; padding:3px 7px; font-size:9px; }
+#wb-data-body { flex:1; overflow-y:auto; padding:8px; display:flex; flex-direction:column; gap:7px; }
+
+.ds { background:#000000; padding:8px; border:1px solid #222222; }
+.ds-title { color:#aaaaaa; font-size:9px; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px; border-bottom:1px solid #222222; padding-bottom:3px; }
+.dr { display:flex; justify-content:space-between; align-items:flex-start; padding:2px 0; border-bottom:1px solid #111111; font-size:10px; }
+.dr:last-child { border-bottom:none; }
+.dk { color:#666666; max-width:48%; }
+.dv { color:#cccccc; font-family:monospace; font-size:10px; text-align:right; word-break:break-all; max-width:55%; }
+table.comp-table { width:100%; border-collapse:collapse; font-size:9px; }
+table.comp-table th { color:#666666; text-align:left; padding:2px 3px; border-bottom:1px solid #222222; text-transform:uppercase; font-weight:normal; }
+table.comp-table td { padding:2px 3px; color:#aaaaaa; border-bottom:1px solid #0a0a0a; font-family:monospace; }
+
+@media (max-width: 850px) {
+  body { height: auto; overflow-y: auto; }
+  #main { flex-direction: column; overflow: visible; }
+  #wb-sidebar, #wb-datapanel { 
+    width: 100%; max-width: 100%; 
+    border-right: none; border-left: none; border-bottom: 1px solid #ffffff; 
+    overflow: visible;
+  }
+  #wb-canvas-wrap { min-height: 50vh; }
+}
+
+</style>
+</head>
+<body>
+
+<div id="nav">
+  <span id="nav-title">Daylight Sim</span>
+  <a href="/">Simulator</a>
+  <a href="/workbench" class="active">Workbench</a>
+</div>
+
+<div id="main">
+
+  <!-- ── LEFT PANEL ── -->
+  <div id="wb-sidebar">
+
+    <div class="wb-group">
+      <h3>Mirror List</h3>
+      <div id="wb-mirror-list" style="display:flex;flex-direction:column;gap:4px;"></div>
+      <div class="wb-btn-row" style="margin-top:4px;">
+        <button class="wb-btn" onclick="wbAddMirror('parabolic')">+ Para</button>
+        <button class="wb-btn" onclick="wbAddMirror('flat')">+ Flat</button>
+        <button class="wb-btn" onclick="wbAddMirror('cpc')">+ CPC</button>
+      </div>
+      <button class="wb-btn hinge" onclick="wbStartHingeMode()">+ Add Hinge</button>
+      <button class="wb-btn" onclick="wbDeleteActive()" style="color:#ff4444;border-color:#ff444433;margin-top:2px;">Delete Selected</button>
+    </div>
+
+    <!-- Object transform -->
+    <div id="wb-sec-object" class="wb-group" style="display:none;">
+      <h3>Transform</h3>
+      <label>Tx <span id="wb-tx-val">0.000 m</span></label>
+      <input type="range" id="wb-tx" min="-3" max="3" step="0.01" value="0" oninput="wbOnChange('tx',this.value)">
+      <label>Ty <span id="wb-ty-val">0.000 m</span></label>
+      <input type="range" id="wb-ty" min="-3" max="3" step="0.01" value="0" oninput="wbOnChange('ty',this.value)">
+      <label>Rotation <span id="wb-rotation-val">0.0°</span></label>
+      <input type="range" id="wb-rotation" min="-180" max="180" step="0.5" value="0" oninput="wbOnChange('rotation',this.value)">
+      <label>Scale X <span id="wb-scalex-val">1.000</span></label>
+      <input type="range" id="wb-scalex" min="0.1" max="5" step="0.01" value="1" oninput="wbOnChange('scaleX',this.value)">
+      <label>Scale Y <span id="wb-scaley-val">1.000</span></label>
+      <input type="range" id="wb-scaley" min="0.1" max="5" step="0.01" value="1" oninput="wbOnChange('scaleY',this.value)">
+    </div>
+
+    <!-- Parabolic params -->
+    <div id="wb-params-parabolic" class="wb-group" style="display:none;">
+      <h3>Parabolic</h3>
+      <label>Focal Length <span id="wb-focal-length-val">500 mm</span></label>
+      <input type="range" id="wb-focal-length" min="0.05" max="2" step="0.01" value="0.5" oninput="wbOnChange('focal_length',this.value)">
+      <label>Aperture <span id="wb-aperture-val">800 mm</span></label>
+      <input type="range" id="wb-aperture" min="0.1" max="2" step="0.01" value="0.8" oninput="wbOnChange('aperture',this.value)">
+      <label>Trim Start <span id="wb-trim-start-val">0%</span></label>
+      <input type="range" id="wb-trim-start" min="0" max="0.95" step="0.01" value="0" oninput="wbOnChange('trim_start',this.value)">
+      <label>Trim End <span id="wb-trim-end-val">100%</span></label>
+      <input type="range" id="wb-trim-end" min="0.05" max="1" step="0.01" value="1" oninput="wbOnChange('trim_end',this.value)">
+      <label>Origin</label>
+      <select id="wb-origin" onchange="wbOnChange('origin',this.value)"></select>
+    </div>
+
+    <!-- Flat params -->
+    <div id="wb-params-flat" class="wb-group" style="display:none;">
+      <h3>Flat Mirror</h3>
+      <label>Width <span id="wb-width-val">600 mm</span></label>
+      <input type="range" id="wb-width" min="0.05" max="2" step="0.01" value="0.6" oninput="wbOnChange('width',this.value)">
+      <label>Trim Start <span id="wb-trim-start-val">0%</span></label>
+      <input type="range" id="wb-trim-start" min="0" max="0.95" step="0.01" value="0" oninput="wbOnChange('trim_start',this.value)">
+      <label>Trim End <span id="wb-trim-end-val">100%</span></label>
+      <input type="range" id="wb-trim-end" min="0.05" max="1" step="0.01" value="1" oninput="wbOnChange('trim_end',this.value)">
+      <label>Origin</label>
+      <select id="wb-origin" onchange="wbOnChange('origin',this.value)"></select>
+    </div>
+
+    <!-- CPC params -->
+    <div id="wb-params-cpc" class="wb-group" style="display:none;">
+      <h3>CPC</h3>
+      <label>Aperture <span id="wb-aperture-val">600 mm</span></label>
+      <input type="range" id="wb-aperture" min="0.1" max="2" step="0.01" value="0.6" oninput="wbOnChange('aperture',this.value)">
+      <label>Acceptance Angle <span id="wb-accept-angle-val">30.0°</span></label>
+      <input type="range" id="wb-accept-angle" min="5" max="89" step="0.5" value="30" oninput="wbOnChange('acceptance_angle',this.value)">
+      <label>Truncation <span id="wb-truncation-val">1.00</span></label>
+      <input type="range" id="wb-truncation" min="0.1" max="1" step="0.01" value="1" oninput="wbOnChange('truncation_factor',this.value)">
+      <label>Trim Start <span id="wb-trim-start-val">0%</span></label>
+      <input type="range" id="wb-trim-start" min="0" max="0.95" step="0.01" value="0" oninput="wbOnChange('trim_start',this.value)">
+      <label>Trim End <span id="wb-trim-end-val">100%</span></label>
+      <input type="range" id="wb-trim-end" min="0.05" max="1" step="0.01" value="1" oninput="wbOnChange('trim_end',this.value)">
+      <label>Origin</label>
+      <select id="wb-origin" onchange="wbOnChange('origin',this.value)"></select>
+    </div>
+
+    <!-- Material -->
+    <div id="wb-sec-material" class="wb-group" style="display:none;">
+      <h3>Material</h3>
+      <select id="wb-material" onchange="wbOnChange('material',this.value)">
+        <option value="aluminium">Aluminium</option>
+        <option value="enhanced_aluminium">Enhanced Aluminium</option>
+        <option value="silver">Silver</option>
+        <option value="gold">Gold</option>
+        <option value="polished_steel">Polished Steel</option>
+      </select>
+      <label>Reflectivity <span id="wb-reflectivity-val">0.920</span></label>
+      <input type="range" id="wb-reflectivity" min="0.5" max="1" step="0.001" value="0.92" oninput="wbOnChange('reflectivity',this.value)">
+      <label>Roughness Ra <span id="wb-roughness-val">0.40 μm</span></label>
+      <input type="range" id="wb-roughness" min="0.01" max="5" step="0.01" value="0.4" oninput="wbOnChange('roughness_ra_um',this.value)">
+      <label>Substrate T <span id="wb-substrate-t-val">2.0 mm</span></label>
+      <input type="range" id="wb-substrate-t" min="0.5" max="10" step="0.1" value="2" oninput="wbOnChange('substrate_thickness_mm',this.value)">
+    </div>
+
+    <!-- Manufacturing -->
+    <div id="wb-sec-mfg" class="wb-group" style="display:none;">
+      <h3>Manufacturing</h3>
+      <select id="wb-mfg" onchange="wbOnChange('manufacturing',this.value)">
+        <option value="stamped_aluminium">Stamped Aluminium</option>
+        <option value="cnc">CNC Milled</option>
+        <option value="sheet_metal">Sheet Metal Bent</option>
+        <option value="3d_print">3D Printed</option>
+      </select>
+      <label>Slope Error <span id="wb-slope-error-val">2.00 mrad</span></label>
+      <input type="range" id="wb-slope-error" min="0.1" max="10" step="0.1" value="2" oninput="wbOnChange('slope_error_mrad',this.value)">
+      <label>PV Form Error <span id="wb-pv-error-val">10.0 μm</span></label>
+      <input type="range" id="wb-pv-error" min="1" max="100" step="1" value="10" oninput="wbOnChange('pv_error_um',this.value)">
+      <label>Point Count <span id="wb-point-count-val">75</span></label>
+      <input type="range" id="wb-point-count" min="10" max="150" step="5" value="75" oninput="wbOnChange('point_count',this.value)">
+    </div>
+
+    <!-- Library -->
+    <div class="wb-group">
+      <h3>Exported Library</h3>
+      <div id="wb-library"></div>
+    </div>
+
+    <button id="wb-btn-compute" class="wb-btn primary" onclick="wbCompute()" style="padding:9px;font-size:11px;">Compute</button>
+
+  </div>
+
+  <!-- ── CANVAS ── -->
+  <div id="wb-canvas-wrap">
+    <canvas id="wb-canvas"></canvas>
+  </div>
+
+  <!-- ── RIGHT PANEL ── -->
+  <div id="wb-datapanel">
+    <div id="wb-data-header">
+      <span>Datasheet</span>
+      <div class="wb-export-row">
+        <button class="wb-btn" onclick="wbExportCSV()">CSV</button>
+        <button class="wb-btn" onclick="wbExportPointsTXT()">Points</button>
+        <button class="wb-btn primary" onclick="wbExportToSim()">To Sim</button>
+      </div>
+    </div>
+    <div id="wb-data-body"></div>
+  </div>
+
+</div>
+
+<script src="/static/js/wb_state.js"></script>
+<script src="/static/js/wb_utils.js"></script>
+<script src="/static/js/wb_canvas.js"></script>
+<script src="/static/js/wb_controls.js"></script>
+<script src="/static/js/wb_datasheet.js"></script>
+<script src="/static/js/wb_main.js"></script>
+</body>
+</html>
