@@ -6,6 +6,7 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from components.parabolic import ParabolicMirror
 from raytracer.rays import Ray
+import tracer3d
 
 app = Flask(__name__, static_folder='static')
 
@@ -21,13 +22,6 @@ def workbench():
 
 @app.route('/workbench/export', methods=['POST'])
 def workbench_export():
-    """
-    Receives the full export payload from workbench:
-    {
-      mirrors: [ { wbMirrorId, type, definition, transform, assemblyId, parentHingeId } ],
-      hinges:  [ { wbHingeId, compAWbId, pointA, compBWbId, pointB } ]
-    }
-    """
     data = request.json
     _workbench_store['mirrors'] = data.get('mirrors', [])
     _workbench_store['hinges']  = data.get('hinges',  [])
@@ -35,7 +29,6 @@ def workbench_export():
 
 @app.route('/workbench/load', methods=['GET'])
 def workbench_load():
-    """Main sim fetches mirrors and hinges together."""
     return jsonify({
         'mirrors': _workbench_store.get('mirrors', []),
         'hinges':  _workbench_store.get('hinges',  []),
@@ -49,29 +42,304 @@ def workbench_clear():
 
 @app.route('/workbench/compute', methods=['POST'])
 def workbench_compute():
-    """
-    Compute all derived parameters for a mirror definition.
-    Receives mirror params, returns full CAD datasheet.
-    """
     data     = request.json
     mtype    = data.get('type', 'parabolic')
     result   = {}
-
-    if mtype == 'parabolic':
-        result = compute_parabolic(data)
-    elif mtype == 'flat':
-        result = compute_flat(data)
-    elif mtype == 'cpc':
-        result = compute_cpc(data)
-
+    if mtype == 'parabolic': result = compute_parabolic(data)
+    elif mtype == 'flat':    result = compute_flat(data)
+    elif mtype == 'cpc':     result = compute_cpc(data)
     return jsonify(result)
 
+# ── 3D ANALYSIS ROUTES ────────────────────────────────────
+@app.route('/analysis3d')
+def analysis3d():
+    return send_from_directory('static', 'analysis3d.html')
+
+@app.route('/trace3d', methods=['POST'])
+def trace3d():
+    data = request.json
+    n_rays      = int(data.get('rays', 500000))
+    max_bounces = int(data.get('bounces', 12))
+    depth       = float(data.get('depth', 1.0))
+    include_viz = bool(data.get('include_viz', True))
+    sun_mode    = data.get('sun_mode', 'true3d')
+    sim_data    = data.get('sim_state', {})
+
+    components = sim_data.get('components', [])
+    src_x      = float(sim_data.get('sourceX', 0.0))
+    src_y      = float(sim_data.get('sourceY', 2.5))
+    src_w      = float(sim_data.get('sourceWidth', 3.0))
+    src_rot    = float(sim_data.get('sourceRotation', 0.0))
+    
+    sun = sim_data.get('sun', {})
+    lat   = float(sun.get('lat', 45))
+    day   = float(sun.get('day', 172))
+    time  = float(sun.get('time', 12))
+    sysAz = float(sun.get('sysAz', 180))
+    dni   = float(sun.get('dni', 900))
+    dhi   = float(sun.get('dhi', 150))
+
+    sol = tracer3d.solar_model(lat, day, time, sysAz, dni, dhi, mode=sun_mode)
+    if sol is None: return jsonify({'error': 'Night time — no trace possible.'})
+
+    surfaces = []
+    fp_comp = None
+    fp_xf = None
+    max_z = 0.0
+    
+    for c in components:
+        typ = c.get('type', '')
+        p   = c.get('params', {})
+        pos = c.get('position', {'x': 0, 'y': 0})
+        rot = c.get('rotation', 0)
+        xf  = {'tx': pos['x'], 'ty': pos['y'], 'rotation': rot}
+        
+        # Depth is now pulled from the frontend 'depth' slider (passed in JSON)
+        dep = depth 
+        max_z = max(max_z, dep)
+
+        if typ == 'parabolic':
+            surfaces.append(tracer3d.make_parabolic_trough(p, xf, dep))
+        elif typ == 'flat':
+            surfaces.append(tracer3d.make_flat_mirror(p, xf, dep))
+        elif typ == 'cpc':
+            surfaces.append(tracer3d.make_cpc(p, xf, dep))
+        elif typ == 'filter':
+            fp_comp = p
+            fp_xf = xf
+
+    if not surfaces:
+        return jsonify({'error': 'No mirror surfaces found.'})
+
+    if max_z <= 0: max_z = 0.6
+
+    if fp_comp is None:
+        return jsonify({'error': 'No Filter Line (Sensor) found in 2D Simulator. Add one to capture the 3D Heatmap!'})
+
+    # Build the filter plane using the correct 3 arguments!
+    filter_plane = tracer3d.make_filter_plane(fp_comp, fp_xf, max_z)
+
+
+    rng = np.random.default_rng(42)
+    src_z0, src_z1 = tracer3d.build_source_plane_z_range(surfaces, src_x, src_y, src_rot, sol['central_dir'])
+    origins = tracer3d.sample_source_strip_origins(src_x, src_y, src_w, src_rot, src_z0, src_z1, n_rays, rng)
+    ray_dirs = tracer3d.sample_solar_cone(sol['central_dir'], n_rays, rng)
+    source_area = max(src_w, 0.0) * max(src_z1 - src_z0, 0.0)
+    if len(origins) == 0 or source_area <= 0:
+        response = {
+            'error': 'Source strip could not generate valid launch rays.',
+            'stats': tracer3d.empty_trace_stats(),
+            'irr_map': filter_plane['irr_map'].tolist(),
+            'w_bins': filter_plane['w_bins'],
+            'z_bins': filter_plane['z_bins'],
+        }
+        if include_viz:
+            response['viz_png_base64'] = tracer3d.render_visualisation_png_base64(
+                surfaces, filter_plane, [], response['stats'], sol
+            )
+        return jsonify(response)
+
+    energy_per = (sol['ghi'] * source_area) / len(origins)
+
+    # 4. Run the Trace!
+    ray_paths, stats = tracer3d.trace_3d(surfaces, filter_plane, origins, ray_dirs, energy_per, max_bounces, rng)
+    
+    irr = filter_plane['irr_map']
+    area_per_cell = (filter_plane['width'] / filter_plane['w_bins']) * (filter_plane['depth'] / filter_plane['z_bins'])
+    irr_wm2 = irr / area_per_cell if area_per_cell > 0 else irr
+    
+    stats['peak_irr'] = float(irr_wm2.max())
+    stats['avg_irr']  = float(irr_wm2.mean())
+    illum = irr_wm2[irr_wm2 > 0]
+    stats['uniformity'] = float((illum.min() / illum.max() * 100) if len(illum) > 0 else 0)
+
+    response = {
+        'stats': stats,
+        'irr_map': irr_wm2.tolist(),
+        'w_bins': filter_plane['w_bins'],
+        'z_bins': filter_plane['z_bins'],
+    }
+    if include_viz:
+        response['viz_png_base64'] = tracer3d.render_visualisation_png_base64(
+            surfaces, filter_plane, ray_paths, stats, sol
+        )
+
+    return jsonify(response)
 
 # ── PARABOLIC COMPUTATIONS ────────────────────────────────
+def _estimate_depth_loss_for_analysis(sim_data, sol):
+    components = sim_data.get('components', [])
+    filter_comp = next((c for c in components if c.get('type') == 'filter'), None)
+    mirrors = [c for c in components if c.get('type') != 'filter']
+    if filter_comp is None or not mirrors:
+        return {'axial_walkoff_m': 0.0, 'suggested_depth_m': 0.0}
+
+    filter_x = float(filter_comp.get('position', {}).get('x', 0.0))
+    cross_travel = 0.0
+    for comp in mirrors:
+        p = comp.get('params', {})
+        span = float(p.get('width', 0.0)) if comp.get('type') in ('flat', 'filter') else float(p.get('aperture', 0.0))
+        cx = float(comp.get('position', {}).get('x', 0.0))
+        cross_travel = max(cross_travel, abs(filter_x - cx) + span * 0.5)
+
+    cd = np.asarray(sol['central_dir'], dtype=float)
+    abs_dx = abs(float(cd[0]))
+    abs_dz = abs(float(cd[2]))
+    if sol.get('mode') == 'profile2d' or abs_dz < 1e-6:
+        return {'axial_walkoff_m': 0.0, 'suggested_depth_m': 0.0}
+    if abs_dx < 0.02:
+        return {'axial_walkoff_m': float('inf'), 'suggested_depth_m': float('inf')}
+
+    axial_walkoff = cross_travel * (abs_dz / abs_dx)
+    return {'axial_walkoff_m': float(axial_walkoff), 'suggested_depth_m': float(axial_walkoff * 1.15)}
+
+def _run_day_range_sample(sim_data, n_rays, max_bounces, depth, sun_mode):
+    components = sim_data.get('components', [])
+    src_x      = float(sim_data.get('sourceX', 0.0))
+    src_y      = float(sim_data.get('sourceY', 2.5))
+    src_w      = float(sim_data.get('sourceWidth', 3.0))
+    src_rot    = float(sim_data.get('sourceRotation', 0.0))
+
+    sun = sim_data.get('sun', {})
+    lat   = float(sun.get('lat', 45))
+    day   = float(sun.get('day', 172))
+    time  = float(sun.get('time', 12))
+    sysAz = float(sun.get('sysAz', 180))
+    dni   = float(sun.get('dni', 900))
+    dhi   = float(sun.get('dhi', 150))
+
+    sol = tracer3d.solar_model(lat, day, time, sysAz, dni, dhi, mode=sun_mode)
+    if sol is None:
+        return None
+
+    surfaces = []
+    fp_comp = None
+    fp_xf = None
+    max_z = 0.0
+
+    for c in components:
+        typ = c.get('type', '')
+        p   = c.get('params', {})
+        pos = c.get('position', {'x': 0, 'y': 0})
+        rot = c.get('rotation', 0)
+        xf  = {'tx': pos['x'], 'ty': pos['y'], 'rotation': rot}
+        dep = depth
+        max_z = max(max_z, dep)
+
+        if typ == 'parabolic':
+            surfaces.append(tracer3d.make_parabolic_trough(p, xf, dep))
+        elif typ == 'flat':
+            surfaces.append(tracer3d.make_flat_mirror(p, xf, dep))
+        elif typ == 'cpc':
+            surfaces.append(tracer3d.make_cpc(p, xf, dep))
+        elif typ == 'filter':
+            fp_comp = p
+            fp_xf = xf
+
+    if not surfaces or fp_comp is None:
+        return None
+
+    if max_z <= 0:
+        max_z = 0.6
+    filter_plane = tracer3d.make_filter_plane(fp_comp, fp_xf, max_z)
+
+    rng = np.random.default_rng(42)
+    src_z0, src_z1 = tracer3d.build_source_plane_z_range(surfaces, src_x, src_y, src_rot, sol['central_dir'])
+    origins = tracer3d.sample_source_strip_origins(src_x, src_y, src_w, src_rot, src_z0, src_z1, n_rays, rng)
+    source_area = max(src_w, 0.0) * max(src_z1 - src_z0, 0.0)
+    if len(origins) == 0 or source_area <= 0:
+        return None
+
+    ray_dirs = tracer3d.sample_solar_cone(sol['central_dir'], n_rays, rng)
+    energy_per = (sol['ghi'] * source_area) / len(origins)
+    _, stats = tracer3d.trace_3d(surfaces, filter_plane, origins, ray_dirs, energy_per, max_bounces, rng)
+
+    irr = filter_plane['irr_map']
+    area_per_cell = (filter_plane['width'] / filter_plane['w_bins']) * (filter_plane['depth'] / filter_plane['z_bins'])
+    irr_wm2 = irr / area_per_cell if area_per_cell > 0 else irr
+    stats['peak_irr'] = float(irr_wm2.max())
+    stats['avg_irr'] = float(irr_wm2.mean())
+    return {
+        'stats': stats,
+        'sol': sol,
+        'depth_loss': _estimate_depth_loss_for_analysis(sim_data, sol),
+    }
+
+@app.route('/analysis3d/day-range', methods=['POST'])
+def analysis3d_day_range():
+    data = request.json
+    sim_data = data.get('sim_state', {})
+    depth = float(data.get('depth', 1.0))
+    max_bounces = int(data.get('bounces', 12))
+    sun_mode = data.get('sun_mode', 'true3d')
+    day_start = int(data.get('day_start', 1))
+    day_end = int(data.get('day_end', day_start))
+    time_step = float(data.get('time_step', 1.0))
+    sample_rays = int(data.get('sample_rays', 1200))
+    max_results = int(data.get('max_results', 12))
+
+    day_start = max(1, min(365, day_start))
+    day_end = max(day_start, min(365, day_end))
+    time_step = min(max(time_step, 0.5), 3.0)
+    sample_rays = min(max(sample_rays, 200), 4000)
+    max_results = min(max(max_results, 3), 20)
+
+    if not sim_data.get('components'):
+        return jsonify({'error': 'No simulation data found for day-range analysis.'})
+
+    base_sun = dict(sim_data.get('sun', {}))
+    recommendations = []
+    samples_evaluated = 0
+
+    for day in range(day_start, day_end + 1):
+        best = None
+        for time_h in np.arange(5.0, 19.0 + 1e-9, time_step):
+            sample_sim = dict(sim_data)
+            sample_sim['sun'] = dict(base_sun)
+            sample_sim['sun']['day'] = int(day)
+            sample_sim['sun']['time'] = round(float(time_h), 3)
+            result = _run_day_range_sample(sample_sim, sample_rays, max_bounces, depth, sun_mode)
+            if result is None:
+                continue
+            samples_evaluated += 1
+
+            entry = {
+                'day': int(day),
+                'time': round(float(time_h), 2),
+                'efficiency_pct': float(result['stats'].get('efficiency_pct', 0.0)),
+                'peak_irr': float(result['stats'].get('peak_irr', 0.0)),
+                'avg_irr': float(result['stats'].get('avg_irr', 0.0)),
+                'alt_deg': float(result['sol'].get('alt_deg', 0.0)),
+                'prof_deg': float(result['sol'].get('prof_deg', 0.0)),
+                'az_deg': float(result['sol'].get('az_deg', 0.0)),
+                'axial_walkoff_m': float(result['depth_loss'].get('axial_walkoff_m', 0.0)),
+                'suggested_depth_m': float(result['depth_loss'].get('suggested_depth_m', 0.0)),
+            }
+
+            if best is None or (
+                entry['efficiency_pct'] > best['efficiency_pct'] or
+                (entry['efficiency_pct'] == best['efficiency_pct'] and entry['peak_irr'] > best['peak_irr'])
+            ):
+                best = entry
+
+        if best is not None:
+            recommendations.append(best)
+
+    recommendations.sort(key=lambda row: (row['efficiency_pct'], row['peak_irr']), reverse=True)
+    return jsonify({
+        'recommendations': recommendations[:max_results],
+        'samples_evaluated': samples_evaluated,
+        'day_start': day_start,
+        'day_end': day_end,
+        'time_step': time_step,
+        'sample_rays': sample_rays,
+        'sun_mode': sun_mode,
+    })
+
 def compute_parabolic(d):
     f           = d.get('focal_length', 0.5)
     D           = d.get('aperture', 0.8)
-    trim_start  = d.get('trim_start', 0.0)   # 0-1 normalized
+    trim_start  = d.get('trim_start', 0.0)
     trim_end    = d.get('trim_end',   1.0)
     mfg         = d.get('manufacturing', 'stamped_aluminium')
     material    = d.get('material', 'aluminium')
@@ -80,90 +348,58 @@ def compute_parabolic(d):
     pv_error    = d.get('pv_error_um', 10.0)
     reflectivity= d.get('reflectivity', 0.92)
     point_count = d.get('point_count', 75)
-    origin_type = d.get('origin', 'vertex')  # vertex | left_tip | right_tip | focal | custom
+    origin_type = d.get('origin', 'vertex')
     substrate_t = d.get('substrate_thickness_mm', 2.0)
 
-    # Full x range
-    x_full = np.linspace(-D/2, D/2, 1000)
-
-    # Trim bounds in x
     x_start = -D/2 + trim_start * D
     x_end   = -D/2 + trim_end   * D
-
-    # Trimmed x range
     x_trim = np.linspace(x_start, x_end, point_count)
     y_trim = x_trim**2 / (4*f)
 
-    # Key points
     tip_left  = (x_start, x_start**2 / (4*f))
     tip_right = (x_end,   x_end**2   / (4*f))
     vertex    = (0.0, 0.0)
     focal_pt  = (0.0, f)
 
-    # Origin point
     if   origin_type == 'vertex':    origin = vertex
     elif origin_type == 'left_tip':  origin = tip_left
     elif origin_type == 'right_tip': origin = tip_right
     elif origin_type == 'focal':     origin = focal_pt
-    else:                            origin = vertex  # fallback
+    else:                            origin = vertex
 
-    # Geometric properties
     chord_dx  = tip_right[0] - tip_left[0]
     chord_dy  = tip_right[1] - tip_left[1]
     chord_len = np.sqrt(chord_dx**2 + chord_dy**2)
-
-    # Arc length (numerical integration)
     dx_arr = np.diff(x_trim)
     dy_arr = np.diff(y_trim)
     arc_len = float(np.sum(np.sqrt(dx_arr**2 + dy_arr**2)))
-
-    # Sagitta (max depth from chord)
-    # Midpoint of chord
     mx = (tip_left[0] + tip_right[0]) / 2
     my = (tip_left[1] + tip_right[1]) / 2
-    # Vertex of trimmed arc (point on curve at midpoint x of trim range)
     mid_x  = (x_start + x_end) / 2
     mid_y  = mid_x**2 / (4*f)
     sagitta = abs(mid_y - my)
-
-    # Width and height of bounding box
     width_bb  = abs(tip_right[0] - tip_left[0])
     height_bb = abs(tip_right[1] - tip_left[1])
 
-    # Rim angle at each tip
-    def rim_angle(x, f):
-        return np.degrees(np.arctan(abs(x) / (2*f)))
-
+    def rim_angle(x, f): return np.degrees(np.arctan(abs(x) / (2*f)))
     rim_left  = rim_angle(x_start, f)
     rim_right = rim_angle(x_end,   f)
-
-    # Radius of curvature at vertex
     roc_vertex = 2 * f
 
-    # Tangent angles at tips (for join planning)
-    def tangent_angle_deg(x, f):
-        dydx = x / (2*f)
-        return np.degrees(np.arctan(dydx))
-
+    def tangent_angle_deg(x, f): return np.degrees(np.arctan(x / (2*f)))
     tang_left  = tangent_angle_deg(x_start, f)
     tang_right = tangent_angle_deg(x_end,   f)
-
-    # f/D ratio (effective aperture)
     eff_D = abs(x_end - x_start)
     fd_ratio = f / eff_D if eff_D > 0 else 0
 
-    # Manufacturing point count recommendation
     tol_map = {'stamped_aluminium': 0.5, 'cnc': 0.05, 'sheet_metal': 1.0, '3d_print': 0.1}
     tol_mm  = tol_map.get(mfg, 0.5)
-
-    # Minimum segments: segment_len < sqrt(8 * R_min * tol)
-    R_min      = 2 * f * 1000  # convert m to mm
+    R_min      = 2 * f * 1000
     max_seg_mm = np.sqrt(8 * R_min * tol_mm)
     arc_mm     = arc_len * 1000
     min_pts    = int(np.ceil(arc_mm / max_seg_mm)) + 1
     recommended_pts = max(50, min(100, min_pts))
 
-    # Reflectivity at visible wavelengths (simple model)
     refl_map = {
         'aluminium':         {'550nm': 0.91, 'avg_vis': 0.89},
         'enhanced_aluminium':{'550nm': 0.95, 'avg_vis': 0.94},
@@ -172,14 +408,7 @@ def compute_parabolic(d):
         'polished_steel':    {'550nm': 0.65, 'avg_vis': 0.63},
     }
     refl_data = refl_map.get(material, {'550nm': reflectivity, 'avg_vis': reflectivity})
-
-    # Point table (3D, z=0)
-    point_table = [
-        {'x': round(float(x_trim[i]), 6),
-         'y': round(float(y_trim[i]), 6),
-         'z': 0.0}
-        for i in range(len(x_trim))
-    ]
+    point_table = [{'x': round(float(x_trim[i]), 6), 'y': round(float(y_trim[i]), 6), 'z': 0.0} for i in range(len(x_trim))]
 
     return {
         'type': 'parabolic',
@@ -223,8 +452,6 @@ def compute_parabolic(d):
         'point_table': point_table
     }
 
-
-# ── FLAT MIRROR COMPUTATIONS ──────────────────────────────
 def compute_flat(d):
     width       = d.get('width', 0.6)
     reflectivity= d.get('reflectivity', 0.92)
@@ -269,7 +496,6 @@ def compute_flat(d):
         'point_table':        point_table
     }
 
-# ── CPC COMPUTATIONS ──────────────────────────────────────
 def compute_cpc(d):
     acceptance_angle = d.get('acceptance_angle', 30)
     aperture         = d.get('aperture', 0.6)
@@ -334,7 +560,6 @@ def compute_cpc(d):
         'point_table_left_arm':  left_pts
     }
 
-# ── SOLAR POSITION MODEL ──────────────────────────────────
 class SolarModel:
     def __init__(self, lat, day, time_h, sys_az):
         self.lat = np.radians(lat)
@@ -441,30 +666,28 @@ def trace():
         has_filter = any(c['type'] == 'filter' for c in components)
         
         if getattr(ray, 'captured', False):
-            # Hit filter
-            total_energy_out += getattr(ray, 'capture_energy', ray.energy)
+            cap_energy = getattr(ray, 'capture_energy', ray.energy)
+            total_energy_out += cap_energy
             exit_positions.append(ray.origin.tolist())
             exit_dirs.append(ray.direction.tolist())
+            ray_energies.append(float(cap_energy)) 
         elif ray.alive and escaped:
             if not has_filter:
-                # No filter, count escaped as output
                 ray.propagate(8.0)
                 total_energy_out += ray.energy
                 exit_positions.append(ray.origin.tolist())
                 exit_dirs.append(ray.direction.tolist())
+                ray_energies.append(float(ray.energy)) 
             else:
-                # Missed filter, dies
                 ray.kill()
                 dead_rays += 1
+                ray_energies.append(0.0) 
         else:
             if ray.alive: ray.kill()
             dead_rays += 1
+            ray_energies.append(0.0) 
             
         ray_paths.append([[float(p[0]),float(p[1])] for p in ray.history])
-        
-        # ONLY APPEND 0 IF IT IS ACTUALLY DEAD (Not captured)
-        is_valid = ray.alive or getattr(ray, 'captured', False)
-        ray_energies.append(float(getattr(ray, 'capture_energy', ray.energy) if is_valid else 0.0))
         
     beam_spread_deg = 0.0
     if len(exit_dirs) > 1:
@@ -519,8 +742,8 @@ def apply_hit(ray, hit):
         ray.kill()
     elif hit['type'] == 'filter':         
         setattr(ray, 'captured', True)
-        setattr(ray, 'capture_energy', ray.energy)  # Snapshot energy!
-        ray.kill()                                  # Stop it at the sensor line!
+        setattr(ray, 'capture_energy', ray.energy)
+        ray.kill()
     elif hit['type'] == 'refract':
         ray.energy *= hit['energy_mult']
         new_d = np.array(hit['new_dir'], dtype=float)
@@ -563,25 +786,32 @@ def drf_efficiency(aoi_deg):
     else: return max(0.2, 1.0 - 0.02*(aoi_deg-35))
 
 def test_filter(ray, comp):
-    width = comp.get('width', 3.0)
-    pos = comp.get('position', [0, 0])
-    rot = np.radians(comp.get('rotation', 0))
+    width   = comp.get('width', 3.0)
+    pos     = comp.get('position', [0, 0])
+    rot     = np.radians(comp.get('rotation', 0))
+    scale_x = comp.get('scaleX', 1.0)
+    scale_y = comp.get('scaleY', 1.0)
+    olx     = comp.get('origin_offset_x', 0.0)
+    oly     = comp.get('origin_offset_y', 0.0)
     
-    # Normal points "up" locally. Arrow points "down".
+    width *= scale_x
     normal = np.array([-np.sin(rot), np.cos(rot)])
-    center = np.array(pos)
+    
+    dx = (0.0 - olx) * scale_x
+    dy = (0.0 - oly) * scale_y
+    rx = dx*np.cos(rot) - dy*np.sin(rot) + pos[0]
+    ry = dx*np.sin(rot) + dy*np.cos(rot) + pos[1]
+    center = np.array([rx, ry])
+    
     along = np.array([np.cos(rot), np.sin(rot)])
     
     dot = np.dot(ray.direction, normal)
     if abs(dot) < 1e-6: return None
-    
     t = np.dot(center - ray.origin, normal) / dot
     if t <= 0.01: return None
     
     hit_pt = ray.origin + t * ray.direction
     if abs(np.dot(hit_pt - center, along)) > width / 2: return None
-    
-    # Only capture rays travelling exactly opposite to the normal (in direction of the UI arrow)
     if dot > 0: return None
     
     return {'t': t, 'normal': normal, 'type': 'filter', 'energy_mult': 1.0, 'aoi_deg': 0}    
@@ -603,44 +833,57 @@ def test_parabolic(ray, comp):
     pos          = comp.get('position', [0, 0])
     rot_deg      = comp.get('rotation', 0)
     rot          = np.radians(rot_deg)
+    scale_x      = comp.get('scaleX', 1.0)
+    scale_y      = comp.get('scaleY', 1.0)
     trim_start   = comp.get('trim_start', 0.0)
     trim_end     = comp.get('trim_end',   1.0)
     olx          = comp.get('origin_offset_x', 0.0)
     oly          = comp.get('origin_offset_y', 0.0)
-    mirror       = ParabolicMirror(f, D, reflectivity, slope_error)
+    
     x_start = -D/2 + trim_start * D
     x_end   = -D/2 + trim_end   * D
     n_pts   = 300
     xs      = np.linspace(x_start, x_end, n_pts)
     ys      = xs**2 / (4*f)
-    best_t = None; best_n = None; best_dist = 0.02
+    
+    best_t = None; best_n = None
+    THRESHOLD = 0.02
+    
     for mx, my in zip(xs, ys):
-        dx = mx - olx
-        dy = my - oly
-        rx = dx*np.cos(rot) - dy*np.sin(rot)
-        ry = dx*np.sin(rot) + dy*np.cos(rot)
-        rx += pos[0]; ry += pos[1]
+        dx = (mx - olx) * scale_x
+        dy = (my - oly) * scale_y
+        rx = dx*np.cos(rot) - dy*np.sin(rot) + pos[0]
+        ry = dx*np.sin(rot) + dy*np.cos(rot) + pos[1]
         mp = np.array([rx, ry])
+        
         to_m = mp - ray.origin
         t    = np.dot(to_m, ray.direction)
         if t <= 0.01: continue
+        
         dist = np.linalg.norm(ray.origin + t*ray.direction - mp)
-        if dist < best_dist:
-            dydx = mx/(2*f)
-            tang = np.array([1.0, dydx]); tang /= np.linalg.norm(tang)
-            loc_n = np.array([-tang[1], tang[0]])
-            nx = loc_n[0]*np.cos(rot) - loc_n[1]*np.sin(rot)
-            ny = loc_n[0]*np.sin(rot) + loc_n[1]*np.cos(rot)
-            wn = np.array([nx, ny])
-            if np.dot(ray.direction, wn) >= 0: continue
-            best_dist = dist; best_t = t; best_n = wn
+        if dist < THRESHOLD:
+            if best_t is None or t < best_t:
+                dydx = mx/(2*f)
+                tang = np.array([1.0 * scale_x, dydx * scale_y])
+                tang /= np.linalg.norm(tang)
+                loc_n = np.array([-tang[1], tang[0]])
+                nx = loc_n[0]*np.cos(rot) - loc_n[1]*np.sin(rot)
+                ny = loc_n[0]*np.sin(rot) + loc_n[1]*np.cos(rot)
+                wn = np.array([nx, ny])
+                
+                if np.dot(ray.direction, wn) < 0:
+                    best_t = t
+                    best_n = wn
+                    
     if best_t is None: return None
     if slope_error > 0:
         err = np.random.normal(0, np.radians(slope_error))
         c, s = np.cos(err), np.sin(err)
         best_n = np.array([c*best_n[0]-s*best_n[1], s*best_n[0]+c*best_n[1]])
+    
     n = best_n/np.linalg.norm(best_n)
     if np.dot(ray.direction, n) > 0: n = -n
+    
     aoi = np.degrees(np.arccos(np.clip(-np.dot(ray.direction, n), -1, 1)))
     return {'t': best_t, 'normal': best_n, 'type': 'reflect', 'energy_mult': reflectivity, 'aoi_deg': aoi}
 
@@ -648,83 +891,142 @@ def test_flat(ray, comp):
     width        = comp.get('width', 0.6)
     reflectivity = comp.get('reflectivity', 0.92)
     pos          = comp.get('position', [0, 0])
-    rot_deg      = comp.get('rotation', 0)
-    rot          = np.radians(rot_deg)
+    rot          = np.radians(comp.get('rotation', 0))
+    scale_x      = comp.get('scaleX', 1.0)
+    scale_y      = comp.get('scaleY', 1.0)
     trim_start   = comp.get('trim_start', 0.0)
     trim_end     = comp.get('trim_end',   1.0)
     olx          = comp.get('origin_offset_x', 0.0)
     oly          = comp.get('origin_offset_y', 0.0)
-    x_start = -width/2 + trim_start * width
-    x_end   = -width/2 + trim_end   * width
+    
+    x_start = (-width/2 + trim_start * width) * scale_x
+    x_end   = (-width/2 + trim_end   * width) * scale_x
+    
     normal = np.array([-np.sin(rot), np.cos(rot)])
-    local_cx = (x_start + x_end) / 2
-    dx = local_cx - olx; dy = 0.0 - oly
+    
+    local_cx = (-width/2 + trim_start * width + -width/2 + trim_end * width) / 2
+    dx = (local_cx - olx) * scale_x
+    dy = (0.0 - oly) * scale_y
     rx = dx*np.cos(rot) - dy*np.sin(rot) + pos[0]
     ry = dx*np.sin(rot) + dy*np.cos(rot) + pos[1]
     center = np.array([rx, ry])
+    
     along = np.array([np.cos(rot), np.sin(rot)])
-    half_len = (x_end - x_start) / 2
+    half_len = abs(x_end - x_start) / 2
+    
     dot = np.dot(ray.direction, normal)
     if abs(dot) < 1e-6: return None
     t = np.dot(center - ray.origin, normal) / dot
     if t <= 0.01: return None
+    
     hit_pt = ray.origin + t*ray.direction
     if abs(np.dot(hit_pt - center, along)) > half_len: return None
     if dot > 0: return {'t': t, 'type': 'absorb', 'normal': normal, 'energy_mult': 0, 'aoi_deg': 0}
+    
     aoi = np.degrees(np.arccos(np.clip(-dot, -1, 1)))
     return {'t': t, 'normal': normal, 'type': 'reflect', 'energy_mult': reflectivity, 'aoi_deg': aoi}
 
 def test_cpc(ray, comp):
-    acceptance_angle=comp.get('acceptance_angle',30); aperture=comp.get('aperture',0.6)
-    reflectivity=comp.get('reflectivity',0.90); pos=comp.get('position',[0,0])
-    rot=np.radians(comp.get('rotation',0))
+    acceptance_angle = comp.get('acceptance_angle',30)
+    aperture         = comp.get('aperture',0.6)
+    reflectivity     = comp.get('reflectivity',0.90)
+    pos              = comp.get('position',[0,0])
+    rot              = np.radians(comp.get('rotation',0))
+    scale_x          = comp.get('scaleX', 1.0)
+    scale_y          = comp.get('scaleY', 1.0)
+    olx              = comp.get('origin_offset_x', 0.0)
+    oly              = comp.get('origin_offset_y', 0.0)
+    
     r=aperture/2; th=np.radians(acceptance_angle); npts=150
     tvs=np.linspace(0,np.pi/2+th,npts)
     xs=r*(1+np.sin(tvs))*np.cos(tvs)/(1+np.sin(th))
     ys=r*(1+np.sin(tvs))*np.sin(tvs)/(1+np.sin(th))-r
     axs=np.concatenate([xs,-xs]); ays=np.concatenate([ys,ys])
     aidx=list(range(npts))+list(range(npts)); asides=[1]*npts+[-1]*npts
-    best_t=None; best_n=None; best_dist=0.02
+    
+    best_t=None; best_n=None
+    THRESHOLD = 0.02
     for idx in range(len(axs)):
-        rx,ry=rot2d(axs[idx],ays[idx],rot); rx+=pos[0]; ry+=pos[1]; mp=np.array([rx,ry])
-        to_m=mp-ray.origin; t=np.dot(to_m,ray.direction)
+        dx = (axs[idx] - olx) * scale_x
+        dy = (ays[idx] - oly) * scale_y
+        rx = dx*np.cos(rot) - dy*np.sin(rot) + pos[0]
+        ry = dx*np.sin(rot) + dy*np.cos(rot) + pos[1]
+        mp = np.array([rx,ry])
+        
+        to_m=mp-ray.origin
+        t=np.dot(to_m,ray.direction)
         if t<=0.01: continue
+        
         dist=np.linalg.norm(ray.origin+t*ray.direction-mp)
-        if dist<best_dist:
-            i=max(1,min(npts-2,aidx[idx])); dx=xs[i+1]-xs[i-1]; dy=ys[i+1]-ys[i-1]
-            dx*=asides[idx]; tang=np.array([dx,dy]); tang/=np.linalg.norm(tang)
-            loc_n=np.array([-tang[1],tang[0]]); nx,ny=rot2d(loc_n[0],loc_n[1],rot)
-            best_dist=dist; best_t=t; best_n=np.array([nx,ny])
+        if dist < THRESHOLD:
+            if best_t is None or t < best_t:
+                i=max(1,min(npts-2,aidx[idx]))
+                tang_x = (xs[i+1]-xs[i-1]) * scale_x * asides[idx]
+                tang_y = (ys[i+1]-ys[i-1]) * scale_y
+                tang = np.array([tang_x, tang_y])
+                tang /= np.linalg.norm(tang)
+                loc_n = np.array([-tang[1], tang[0]])
+                nx = loc_n[0]*np.cos(rot) - loc_n[1]*np.sin(rot)
+                ny = loc_n[0]*np.sin(rot) + loc_n[1]*np.cos(rot)
+                wn = np.array([nx, ny])
+                
+                if np.dot(ray.direction, wn) < 0:
+                    best_t = t
+                    best_n = wn
+                    
     if best_t is None: return None
-    n=best_n/np.linalg.norm(best_n)
+    n = best_n/np.linalg.norm(best_n)
     if np.dot(ray.direction,n)>0: n=-n
     aoi=np.degrees(np.arccos(np.clip(-np.dot(ray.direction,n),-1,1)))
     return {'t':best_t,'normal':best_n,'type':'reflect','energy_mult':reflectivity,'aoi_deg':aoi}
 
 def test_glass(ray, comp):
-    width=comp.get('width',0.6); ior=comp.get('ior',1.50)
-    transmission=comp.get('transmission',0.92); has_drf=comp.get('has_drf',1)
-    pos=comp.get('position',[0,0]); rot=np.radians(comp.get('rotation',0))
-    normal=np.array([-np.sin(rot),np.cos(rot)]); center=np.array(pos); along=np.array([np.cos(rot),np.sin(rot)])
-    denom=np.dot(ray.direction,normal)
-    if abs(denom)<1e-6: return None
-    t=np.dot(center-ray.origin,normal)/denom
-    if t<=0.01: return None
-    hit=ray.origin+t*ray.direction
-    if abs(np.dot(hit-center,along))>width/2: return None
-    n=normal.copy()
-    if np.dot(ray.direction,n)>0: n=-n
-    cos_i=abs(np.dot(ray.direction,n))
-    aoi_deg=np.degrees(np.arccos(np.clip(cos_i,0,1)))
-    fresnel_t=fresnel_transmission(cos_i,1.0,ior)
-    drf_mult=drf_efficiency(aoi_deg) if has_drf else 1.0
-    total_mult=fresnel_t*transmission*drf_mult
-    refracted_dir=snell_refract(ray.direction,normal,1.0,ior)
+    width        = comp.get('width', 0.6)
+    ior          = comp.get('ior', 1.50)
+    transmission = comp.get('transmission', 0.92)
+    has_drf      = comp.get('has_drf', 1)
+    pos          = comp.get('position', [0, 0])
+    rot          = np.radians(comp.get('rotation', 0))
+    scale_x      = comp.get('scaleX', 1.0)
+    scale_y      = comp.get('scaleY', 1.0)
+    olx          = comp.get('origin_offset_x', 0.0)
+    oly          = comp.get('origin_offset_y', 0.0)
+    
+    width *= scale_x
+    normal = np.array([-np.sin(rot), np.cos(rot)])
+    
+    dx = (0.0 - olx) * scale_x
+    dy = (0.0 - oly) * scale_y
+    rx = dx*np.cos(rot) - dy*np.sin(rot) + pos[0]
+    ry = dx*np.sin(rot) + dy*np.cos(rot) + pos[1]
+    center = np.array([rx, ry])
+    
+    along = np.array([np.cos(rot), np.sin(rot)])
+    
+    denom = np.dot(ray.direction, normal)
+    if abs(denom) < 1e-6: return None
+    t = np.dot(center - ray.origin, normal) / denom
+    if t <= 0.01: return None
+    hit = ray.origin + t*ray.direction
+    if abs(np.dot(hit - center, along)) > width / 2: return None
+    
+    n = normal.copy()
+    if np.dot(ray.direction, n) > 0: n = -n
+    cos_i = abs(np.dot(ray.direction, n))
+    aoi_deg = np.degrees(np.arccos(np.clip(cos_i, 0, 1)))
+    
+    fresnel_t = fresnel_transmission(cos_i, 1.0, ior)
+    drf_mult = drf_efficiency(aoi_deg) if has_drf else 1.0
+    total_mult = fresnel_t * transmission * drf_mult
+    
+    refracted_dir = snell_refract(ray.direction, normal, 1.0, ior)
     if refracted_dir is None:
-        return {'t':t,'type':'reflect','normal':normal,'energy_mult':0.05,'aoi_deg':aoi_deg}
-    exit_dir=snell_refract(refracted_dir,-normal,ior,1.0)
-    if exit_dir is None: exit_dir=refracted_dir
-    return {'t':t,'type':'refract','new_dir':exit_dir,'energy_mult':total_mult,'normal':normal,'aoi_deg':aoi_deg}
+        return {'t': t, 'type': 'reflect', 'normal': normal, 'energy_mult': 0.05, 'aoi_deg': aoi_deg}
+        
+    exit_dir = snell_refract(refracted_dir, -normal, ior, 1.0)
+    if exit_dir is None: exit_dir = refracted_dir
+    
+    return {'t': t, 'type': 'refract', 'new_dir': exit_dir, 'energy_mult': total_mult, 'normal': normal, 'aoi_deg': aoi_deg}
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))

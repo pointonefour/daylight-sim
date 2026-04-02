@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "saved": "2026-04-02T09:36:38.026Z",
+  "sim": {
+    "components": [
+      {
+        "id": 12,
+        "type": "parabolic",
+        "position": {
+          "x": -2.575767323619195,
+          "y": 1.4587347987840507
+        },
+        "rotation": -97,
+        "params": {
+          "focal_length": 0.5,
+          "aperture": 1.45,
+          "reflectivity": 0.92,
+          "slope_error": 0.2,
+          "trim_start": 0,
+          "trim_end": 1,
+          "origin_type": "vertex",
+          "origin_offset_x": 0,
+          "origin_offset_y": 0,
+          "assembly_id": null,
+          "parent_hinge_id": null
+        }
+      },
+      {
+        "id": 13,
+        "type": "filter",
+        "position": {
+          "x": -1.2765556460598884,
+          "y": -2.4848801265915275
+        },
+        "rotation": 90,
+        "params": {
+          "width": 7.6,
+          "origin_type": "center",
+          "origin_offset_x": 0,
+          "origin_offset_y": 0
+        }
+      }
+    ],
+    "simHinges": [],
+    "sourceX": 2.7065604309056077,
+    "sourceY": 4.164001439391172,
+    "sourceWidth": 1.7,
+    "sourceRotation": -61,
+    "viewport": {
+      "zoom": 0.47558639140950837,
+      "panX": -144.7203308466162,
+      "panY": 68.53424183840463
+    },
+    "idCtr": 15,
+    "sun": {
+      "lat": 45,
+      "day": 172,
+      "time": 18.6,
+      "sysAz": 180,
+      "dni": 900,
+      "dhi": 150
+    }
+  },
+  "workbench": {
+    "mirrors": [],
+    "hinges": [],
+    "assemblies": [],
+    "viewport": {
+      "zoom": 1,
+      "panX": 0,
+      "panY": 0
+    },
+    "idCtr": 0,
+    "hingeIdCtr": 0
+  }
+}

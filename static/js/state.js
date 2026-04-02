@@ -11,6 +11,15 @@ const State = {
   sourceWidth:    3.0,
   sourceRotation: 0,    // degrees — visual rotation of the source line only
 
+  sun: {
+    lat:   45,
+    day:   172,
+    time:  12,
+    sysAz: 180,
+    dni:   900,
+    dhi:   150
+  },
+
   components:  [],
   selectedId:  null,
   idCtr:       0,
@@ -67,6 +76,16 @@ function simSave() {
       sourceX:        State.sourceX, sourceY: State.sourceY,
       sourceWidth:    State.sourceWidth, sourceRotation: State.sourceRotation,
       viewport:       State.viewport, idCtr: State.idCtr,
+
+      sun: {
+        lat:   parseFloat(document.getElementById('lat')?.value   || 45),
+        day:   parseFloat(document.getElementById('day')?.value   || 172),
+        time:  parseFloat(document.getElementById('time')?.value  || 12),
+        sysAz: parseFloat(document.getElementById('sysaz')?.value || 180),
+        dni:   parseFloat(document.getElementById('dni')?.value   || 900),
+        dhi:   parseFloat(document.getElementById('dhi')?.value   || 150),
+      }
+
     }));
   } catch(e) { console.warn('simSave failed', e); }
 }
@@ -84,8 +103,66 @@ function simRestore() {
     State.sourceRotation = d.sourceRotation ?? 0;
     State.viewport       = d.viewport       || { zoom:1, panX:0, panY:0 };
     State.idCtr          = d.idCtr          || 0;
+
+    State.sun = d.sun || { lat: 45, day: 172, time: 12, sysAz: 180, dni: 900, dhi: 150 };
+
+    _syncSimUIFromState();
+    
     return State.components.length > 0;
   } catch(e) { return false; }
+}
+
+function _syncSimUIFromState() {
+  const setVal = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.value = val;
+  };
+  const setText = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  };
+
+  setVal('srx', State.sourceX);
+  setVal('sry', State.sourceY);
+  setVal('srw', State.sourceWidth);
+  setVal('src-rot', State.sourceRotation);
+  setText('sxv', Number(State.sourceX).toFixed(1));
+  setText('syv', Number(State.sourceY).toFixed(1));
+  setText('swv', Number(State.sourceWidth).toFixed(1));
+  setText('src-rot-val', Number(State.sourceRotation).toFixed(0) + '°');
+
+  setVal('lat', State.sun.lat);
+  setVal('day', State.sun.day);
+  setVal('time', State.sun.time);
+  setVal('sysaz', State.sun.sysAz);
+  setVal('dni', State.sun.dni);
+  setVal('dhi', State.sun.dhi);
+  setText('latv', Number(State.sun.lat).toFixed(0) + '°');
+  setText('dayv', State.sun.day);
+  setText('timev', typeof formatTime === 'function' ? formatTime(State.sun.time) : String(State.sun.time));
+  setText('sysazv', Number(State.sun.sysAz).toFixed(0) + '°');
+}
+
+function analysis3dSave(payload) {
+  try {
+    localStorage.setItem('dls_analysis3d', JSON.stringify(payload));
+  } catch(e) { console.warn('analysis3dSave failed', e); }
+}
+
+function analysis3dRestore() {
+  try {
+    const raw = localStorage.getItem('dls_analysis3d');
+    return raw ? JSON.parse(raw) : null;
+  } catch(e) {
+    console.warn('analysis3dRestore failed', e);
+    return null;
+  }
+}
+
+function analysis3dClear() {
+  try {
+    localStorage.removeItem('dls_analysis3d');
+  } catch(e) { console.warn('analysis3dClear failed', e); }
 }
 
 // ── UNDO / REDO (Debounced to prevent slider spam) ────────
@@ -147,6 +224,9 @@ function redo() {
 window.State      = State;
 window.simSave    = simSave;
 window.simRestore = simRestore;
+window.analysis3dSave = analysis3dSave;
+window.analysis3dRestore = analysis3dRestore;
+window.analysis3dClear = analysis3dClear;
 window.pushState  = pushState;
 window.undo       = undo;
 window.redo       = redo;

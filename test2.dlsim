@@ -1,0 +1,136 @@
+{
+  "version": 1,
+  "saved": "2026-04-02T04:48:44.543Z",
+  "sim": {
+    "components": [
+      {
+        "id": 6,
+        "type": "flat",
+        "position": {
+          "x": -0.71982185512852,
+          "y": 0.14963606736682195
+        },
+        "rotation": -15,
+        "params": {
+          "width": 1.5,
+          "reflectivity": 0.99,
+          "trim_start": 0,
+          "trim_end": 1,
+          "origin_type": "center",
+          "origin_offset_x": 0,
+          "origin_offset_y": 0,
+          "assembly_id": null,
+          "parent_hinge_id": null
+        }
+      },
+      {
+        "id": 7,
+        "type": "parabolic",
+        "position": {
+          "x": -1.5754109036115809,
+          "y": 0.9104802305559273
+        },
+        "rotation": -82,
+        "params": {
+          "focal_length": 0.5,
+          "aperture": 1.15,
+          "reflectivity": 0.92,
+          "slope_error": 0.2,
+          "trim_start": 0,
+          "trim_end": 1,
+          "origin_type": "vertex",
+          "origin_offset_x": 0,
+          "origin_offset_y": 0,
+          "assembly_id": null,
+          "parent_hinge_id": null
+        }
+      },
+      {
+        "id": 8,
+        "type": "flat",
+        "position": {
+          "x": 0.10078283429541357,
+          "y": 0.9260862942462295
+        },
+        "rotation": -180,
+        "params": {
+          "width": 1.8,
+          "reflectivity": 0.92,
+          "trim_start": 0,
+          "trim_end": 1,
+          "origin_type": "center",
+          "origin_offset_x": 0,
+          "origin_offset_y": 0,
+          "assembly_id": null,
+          "parent_hinge_id": null
+        }
+      },
+      {
+        "id": 10,
+        "type": "filter",
+        "position": {
+          "x": 2.607013089826042,
+          "y": -0.48741357390769857
+        },
+        "rotation": 90,
+        "params": {
+          "width": 4.5,
+          "origin_type": "center",
+          "origin_offset_x": 0,
+          "origin_offset_y": 0
+        }
+      },
+      {
+        "id": 11,
+        "type": "flat",
+        "position": {
+          "x": 0.9989676483653502,
+          "y": 1.6265062411628015
+        },
+        "rotation": -90,
+        "params": {
+          "width": 1.3,
+          "reflectivity": 0.92,
+          "trim_start": 0,
+          "trim_end": 1,
+          "origin_type": "center",
+          "origin_offset_x": 0,
+          "origin_offset_y": 0,
+          "assembly_id": null,
+          "parent_hinge_id": null
+        }
+      }
+    ],
+    "simHinges": [],
+    "sourceX": 0.2817909321768623,
+    "sourceY": 3.3523079752214993,
+    "sourceWidth": 1.7,
+    "sourceRotation": -29,
+    "viewport": {
+      "zoom": 1.5727836816982816,
+      "panX": -343.51318421678354,
+      "panY": 98.45010489978102
+    },
+    "idCtr": 12,
+    "sun": {
+      "lat": 45,
+      "day": 214,
+      "time": 6,
+      "sysAz": 182,
+      "dni": 900,
+      "dhi": 150
+    }
+  },
+  "workbench": {
+    "mirrors": [],
+    "hinges": [],
+    "assemblies": [],
+    "viewport": {
+      "zoom": 1,
+      "panX": 0,
+      "panY": 0
+    },
+    "idCtr": 0,
+    "hingeIdCtr": 0
+  }
+}

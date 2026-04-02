@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>3D Analysis — Daylight Sim</title>
+<link rel="icon" href="/static/favicon.png" type="image/png">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; border-radius:0 !important; }
+body { background:#000000; color:#ffffff; font-family:'Segoe UI',sans-serif; display:flex; flex-direction:column; height:100vh; overflow:hidden; font-size:11px; }
+
+#nav { display:flex; align-items:center; gap:20px; padding:8px 15px; border-bottom:1px solid #333333; min-height:36px; }
+#nav-title { color:#ffffff; font-size:12px; text-transform:uppercase; letter-spacing:3px; font-weight:bold; margin-right:10px; }
+#nav a { color:#666666; text-decoration:none; text-transform:uppercase; letter-spacing:2px; font-size:10px; font-weight:bold; }
+#nav a:hover { color:#ffffff; }
+#nav a.active { color:#ffffff; border-bottom:1px solid #ffffff; padding-bottom:2px; }
+
+#main { display:flex; flex:1; overflow:hidden; }
+
+/* ── LEFT PANEL ── */
+#a3d-sidebar { width:250px; min-width:250px; background:#000000; border-right:1px solid #ffffff; padding:10px; display:flex; flex-direction:column; gap:8px; overflow-y:auto; }
+h3 { color:#666666; font-size:9px; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px; }
+.a3d-group { border:1px solid #222222; padding:9px; display:flex; flex-direction:column; gap:6px; }
+label { color:#bbbbbb; display:flex; justify-content:space-between; align-items:center; font-size:10px; }
+
+input[type=range] { -webkit-appearance:none; appearance:none; width:100%; background:transparent; }
+input[type=range]::-webkit-slider-runnable-track { height:1px; background:#ffffff; }
+input[type=range]::-webkit-slider-thumb { height:10px; width:10px; background:#000000; border:1.5px solid #ffffff; cursor:pointer; -webkit-appearance:none; appearance:none; margin-top:-4.5px; }
+input[type=number] { width:75px; background:#000000; border:1px solid #ffffff; color:#ffffff; padding:3px 5px; font-size:10px; outline:none; }
+
+.btn { padding:7px 10px; border:1px solid #ffffff; cursor:pointer; font-weight:bold; transition:all .15s; width:100%; font-size:10px; background:#000000; color:#ffffff; text-transform:uppercase; letter-spacing:1px; }
+.btn:hover { background:#ffffff; color:#000000; }
+.btn.primary { background:#ffffff; color:#000000; }
+.btn.primary:hover { background:#cccccc; border-color:#cccccc; }
+#run-status { display:none; border:1px solid #222222; padding:10px; margin-top:8px; background:#060606; }
+#run-status.active { display:block; }
+#run-status-title { color:#f0f0f0; font-size:10px; text-transform:uppercase; letter-spacing:1px; margin-bottom:7px; }
+#run-status-grid { display:flex; flex-direction:column; gap:4px; }
+#run-status .rs-row { display:flex; justify-content:space-between; gap:8px; font-size:10px; }
+#run-status .rs-key { color:#6f6f6f; }
+#run-status .rs-value { color:#d6d6d6; font-family:monospace; text-align:right; }
+#sidebar-actions { display:flex; flex-direction:column; gap:8px; }
+
+/* ── CENTER CANVAS (HEATMAP) ── */
+#a3d-canvas-wrap { flex:1; position:relative; overflow:hidden; background:#0a0a0a; display:flex; justify-content:center; align-items:center; flex-direction:column; padding:20px; }
+canvas { display:block; box-shadow: 0 0 20px rgba(0,0,0,0.8); border: 1px solid #333333; max-width: 100%; max-height: 100%; }
+#heatmap-legend { margin-top: 15px; display: flex; align-items: center; gap: 10px; font-family: monospace; color: #888; }
+#colorbar { width: 300px; height: 10px; background: linear-gradient(to right, #000000, #0000aa, #00aaff, #ffffff); border: 1px solid #333333; }
+#loading-overlay { position:absolute; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.72); z-index:2; }
+#loading-overlay.active { display:flex; }
+#loading-card { min-width:280px; padding:18px 20px; border:1px solid #2a2a2a; background:rgba(10,10,10,0.96); box-shadow:0 18px 45px rgba(0,0,0,0.45); }
+#loading-head { display:flex; align-items:center; gap:12px; margin-bottom:10px; }
+#loading-spinner { width:18px; height:18px; border:2px solid #3b3b3b; border-top-color:#ffffff; border-radius:50% !important; animation:spin 0.9s linear infinite; }
+#loading-title { color:#f2f2f2; font-size:11px; text-transform:uppercase; letter-spacing:1px; }
+#loading-subtitle { color:#8d8d8d; font-size:10px; line-height:1.45; }
+@keyframes spin { to { transform:rotate(360deg); } }
+#view-toggle { position:absolute; top:18px; right:18px; display:flex; gap:6px; z-index:3; }
+.view-btn { border:1px solid #2d2d2d; background:rgba(8,8,8,0.9); color:#bfbfbf; padding:7px 10px; font-size:10px; text-transform:uppercase; letter-spacing:1px; cursor:pointer; }
+.view-btn.active { background:#f0f0f0; color:#000000; border-color:#f0f0f0; }
+#model-view { display:none; max-width:100%; max-height:100%; border:1px solid #333333; box-shadow:0 0 20px rgba(0,0,0,0.8); }
+#model-view.active { display:block; }
+#a3d-canvas.hidden, #heatmap-legend.hidden { display:none !important; }
+#depth-warning { position:absolute; top:18px; left:18px; right:18px; max-width:760px; padding:12px 14px; border:1px solid #2d2d2d; background:rgba(10,10,10,0.92); color:#d0d0d0; display:none; z-index:3; line-height:1.45; box-shadow:0 14px 30px rgba(0,0,0,0.35); }
+#depth-warning[data-level="warn"] { border-color:#7a6320; background:rgba(30,24,8,0.95); color:#f1dfac; }
+#depth-warning[data-level="danger"] { border-color:#7f2b2b; background:rgba(34,8,8,0.95); color:#f3c2c2; }
+#depth-warning-title { font-size:11px; font-weight:bold; letter-spacing:1px; text-transform:uppercase; margin-bottom:6px; }
+#depth-warning-body { font-size:11px; }
+#depth-warning-body .warn-line { display:block; margin-top:4px; }
+#depth-warning-body .warn-drift { color:#f1df6f; }
+#depth-warning-body .warn-depth { color:#73e6a0; }
+#stale-warning { position:absolute; left:18px; bottom:18px; max-width:460px; padding:10px 12px; border:1px solid #6b4a1a; background:rgba(36,22,6,0.95); color:#f0d49a; display:none; z-index:3; line-height:1.4; }
+#stale-warning-title { font-size:10px; font-weight:bold; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px; }
+
+/* ── RIGHT PANEL ── */
+#a3d-datapanel { width:290px; min-width:290px; background:#000000; border-left:1px solid #ffffff; display:flex; flex-direction:column; overflow:hidden; }
+#a3d-data-header { padding:10px 12px; border-bottom:1px solid #333333; display:flex; justify-content:space-between; align-items:center; }
+#a3d-data-header span { color:#ffffff; font-size:11px; font-weight:bold; text-transform:uppercase; letter-spacing:2px; }
+#a3d-data-body { flex:1; overflow-y:auto; padding:8px; display:flex; flex-direction:column; gap:7px; }
+
+.ds { background:#000000; padding:8px; border:1px solid #222222; }
+.ds-title { color:#aaaaaa; font-size:9px; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px; border-bottom:1px solid #222222; padding-bottom:3px; }
+.dr { display:flex; justify-content:space-between; align-items:flex-start; padding:2px 0; border-bottom:1px solid #111111; font-size:10px; }
+.dr:last-child { border-bottom:none; }
+.dk { color:#666666; max-width:48%; }
+.dv { color:#cccccc; font-family:monospace; font-size:10px; text-align:right; word-break:break-all; max-width:55%; }
+
+#no-data { color:#888888; text-align:center; margin-top:40px; font-size:12px; text-transform:uppercase; letter-spacing:1px; }
+
+@media (max-width: 1200px) {
+  #main { flex-direction:column; overflow:auto; }
+  #a3d-sidebar, #a3d-datapanel { width:100%; min-width:0; border:none; }
+  #a3d-sidebar { border-bottom:1px solid #222222; }
+  #a3d-datapanel { border-top:1px solid #222222; min-height:240px; }
+  #a3d-canvas-wrap { min-height:55vh; }
+}
+
+@media (max-width: 720px) {
+  body { overflow:auto; }
+  #nav { flex-wrap:wrap; gap:10px; padding:10px 12px; }
+  #nav-title { width:100%; margin-right:0; }
+  #a3d-sidebar { padding:12px; }
+  #a3d-canvas-wrap { padding:14px; min-height:50vh; }
+  #view-toggle { position:static; width:100%; justify-content:flex-end; margin-bottom:10px; }
+  #depth-warning { position:static; max-width:none; margin-bottom:10px; }
+  #heatmap-legend { width:100%; justify-content:center; flex-wrap:wrap; }
+  #colorbar { width:min(260px, 80vw); }
+  #loading-card { min-width:0; width:min(92vw, 360px); }
+}
+</style>
+</head>
+<body>
+
+<div id="nav">
+  <span id="nav-title">Daylight Sim</span>
+  <a href="/">Simulator</a>
+  <a href="/workbench">Workbench</a>
+  <a href="/analysis3d" class="active">3D Analysis</a>
+</div>
+
+<div id="main">
+
+  <!-- ── LEFT PANEL ── -->
+  <div id="a3d-sidebar">
+    <div class="a3d-group">
+      <h3>Simulation Engine</h3>
+      <label>Sun Vector Mode</label>
+      <select id="sun-mode" style="width:100%; background:#000000; border:1px solid #ffffff; color:#ffffff; padding:6px 8px; font-size:10px; outline:none;">
+        <option value="true3d">True 3D</option>
+        <option value="profile2d">2.5D Profile</option>
+      </select>
+      <label>Rays (Millions) <span id="r-val">0.5</span></label>
+      <input type="range" id="rays" min="0.05" max="5" step="0.05" value="0.5" oninput="document.getElementById('r-val').textContent=this.value">
+      
+      <label>Max Bounces <span id="b-val">12</span></label>
+      <input type="range" id="bounces" min="1" max="50" step="1" value="12" oninput="document.getElementById('b-val').textContent=this.value">
+      
+      <label>Extrusion Depth <span id="d-val">1.0 m</span></label>
+      <input type="range" id="depth" min="0.1" max="30" step="0.1" value="1.0" oninput="document.getElementById('d-val').textContent=this.value+' m'">
+    </div>
+
+    <div class="a3d-group">
+      <h3>Environment (Synced)</h3>
+      <div style="color:#555; font-size:9px; margin-bottom:5px;">Loads automatically from 2D Simulator state.</div>
+      <button class="btn" onclick="loadSimState()" style="border-color:#444; color:#aaa;">↻ Refresh Sync</button>
+    </div>
+
+    <div class="a3d-group">
+      <h3>Day Range Analyzer</h3>
+      <label>Start Day</label>
+      <input type="number" id="day-start" min="1" max="365" step="1" value="160">
+      <label>End Day</label>
+      <input type="number" id="day-end" min="1" max="365" step="1" value="220">
+      <label>Time Step (Hours)</label>
+      <input type="number" id="day-step" min="0.5" max="3" step="0.5" value="1.0">
+      <button class="btn" onclick="runDayRangeAnalysis()">Analyze Day Range</button>
+    </div>
+
+    <div id="sidebar-actions">
+      <button id="btn-trace3d" class="btn primary" onclick="runTrace3D()" style="padding:10px; font-size:12px; margin-top:10px;">▶ Compute 3D Irradiance</button>
+      <button class="btn" onclick="downloadHeatmapImage()">Download Heatmap PNG</button>
+    </div>
+    <div id="run-status">
+      <div id="run-status-title">Trace Status</div>
+      <div id="run-status-grid">
+        <div class="rs-row"><span class="rs-key">Stage</span><span id="rs-stage" class="rs-value">Preparing</span></div>
+        <div class="rs-row"><span class="rs-key">Elapsed</span><span id="rs-elapsed" class="rs-value">00:00</span></div>
+        <div class="rs-row"><span class="rs-key">Expected</span><span id="rs-expected" class="rs-value">Estimating...</span></div>
+        <div class="rs-row"><span class="rs-key">Rays</span><span id="rs-rays" class="rs-value">0</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CANVAS ── -->
+  <div id="a3d-canvas-wrap">
+    <div id="loading-overlay">
+      <div id="loading-card">
+        <div id="loading-head">
+          <div id="loading-spinner"></div>
+          <div id="loading-title">Computing 3D Irradiance</div>
+        </div>
+        <div id="loading-subtitle">Elapsed: <span id="loading-elapsed">00:00</span><br>Expected: <span id="loading-expected">Estimating...</span></div>
+      </div>
+    </div>
+    <div id="view-toggle">
+      <button id="view-heatmap" class="view-btn active" onclick="setAnalysisView('heatmap')">Heatmap</button>
+      <button id="view-model" class="view-btn" onclick="setAnalysisView('model')">3D Model</button>
+    </div>
+    <div id="depth-warning" data-level="warn">
+      <div id="depth-warning-title">Depth-Loss Warning</div>
+      <div id="depth-warning-body"></div>
+    </div>
+    <div id="stale-warning">
+      <div id="stale-warning-title">Displayed Result Is Out Of Date</div>
+      <div id="stale-warning-body"></div>
+    </div>
+    <canvas id="a3d-canvas"></canvas>
+    <img id="model-view" alt="3D model render">
+    <div id="heatmap-legend" style="display:none;">
+      <span>0 W/m²</span>
+      <div id="colorbar"></div>
+      <span id="legend-max">Max W/m²</span>
+    </div>
+  </div>
+
+  <!-- ── RIGHT PANEL ── -->
+  <div id="a3d-datapanel">
+    <div id="a3d-data-header">
+      <span>3D Metrics</span>
+      <div style="display:flex; gap:6px;">
+        <button class="btn" style="width:auto; padding:3px 8px; font-size:9px;" onclick="downloadHeatmapImage()">PNG</button>
+        <button class="btn" style="width:auto; padding:3px 8px; font-size:9px;" onclick="export3DCSV()">↓ CSV</button>
+      </div>
+    </div>
+    <div id="a3d-data-body">
+      <div id="no-data">Run compute to generate heatmap</div>
+    </div>
+    <div id="a3d-rec-body" style="border-top:1px solid #222222; padding:8px; overflow-y:auto; max-height:34vh;">
+      <div id="no-rec" style="color:#666666; text-align:center; font-size:10px; text-transform:uppercase; letter-spacing:1px; margin:10px 0;">Run day range analysis to get recommendations</div>
+    </div>
+  </div>
+
+</div>
+
+<script src="/static/js/state.js"></script>
+<script src="/static/js/analysis3d_v2.js"></script>
+</body>
+</html>

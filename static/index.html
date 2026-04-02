@@ -146,6 +146,7 @@ table.comp-table tr:hover td { background:#111111; color:#ffffff; }
   <span id="nav-title">Daylight Sim</span>
   <a href="/" class="active">Simulator</a>
   <a href="/workbench">Workbench</a>
+  <a href="/analysis3d">3D Analysis</a>
 </div>
 
 <!-- ── MAIN ── -->
@@ -155,21 +156,27 @@ table.comp-table tr:hover td { background:#111111; color:#ffffff; }
     <div class="group">
         <button class="btn" onclick="loadFromWorkbench()" style="margin-top:4px;">Load from Workbench</button>
       <h3>Location & Time</h3>
-      <label>Latitude <span id="latv">45°</span></label>
-      <input type="range" id="lat" min="-90" max="90" value="45" oninput="latv.textContent=this.value+'°';draw()">
-      <label>Day of Year <span id="dayv">172</span></label>
-      <input type="range" id="day" min="1" max="365" value="172" oninput="dayv.textContent=this.value;draw()">
-      <label>Time <span id="timev">12:00</span></label>
-      <input type="range" id="time" min="0" max="23.9" step="0.1" value="12" oninput="timev.textContent=formatTime(this.value);draw()">
-      <label>Sys Azimuth <span id="sysazv">180°</span></label>
-      <input type="range" id="sysaz" min="0" max="360" value="180" oninput="sysazv.textContent=this.value+'°';draw()">
-      <label>Base DNI (W/m²) <input type="number" id="dni" value="900" min="0" max="1200" oninput="draw()"></label>
-      <label>Base DHI (W/m²) <input type="number" id="dhi" value="150" min="0" max="400" oninput="draw()"></label>
-      <label>Rays <span id="rv">80</span></label>
-      <input type="range" id="rc" min="10" max="300" value="80" oninput="rv.textContent=this.value">
-      <label>Max Bounces <span id="mbv">12</span></label>
-      <input type="range" id="mb" min="1" max="50" value="12" oninput="mbv.textContent=this.value">
-    </div>
+    <label>Latitude <span id="latv">45°</span></label>
+    <input type="range" id="lat" min="-90" max="90" value="45" oninput="State.sun.lat=+this.value; latv.textContent=this.value+'°'; draw(); simSave();">
+    
+    <label>Day of Year <span id="dayv">172</span></label>
+    <input type="range" id="day" min="1" max="365" value="172" oninput="State.sun.day=+this.value; dayv.textContent=this.value; draw(); simSave();">
+    
+    <label>Time <span id="timev">12:00</span></label>
+    <input type="range" id="time" min="0" max="23.9" step="0.1" value="12" oninput="State.sun.time=+this.value; timev.textContent=formatTime(this.value); draw(); simSave();">
+    
+    <label>Sys Azimuth <span id="sysazv">180°</span></label>
+    <input type="range" id="sysaz" min="0" max="360" value="180" oninput="State.sun.sysAz=+this.value; sysazv.textContent=this.value+'°'; draw(); simSave();">
+    
+    <label>Base DNI (W/m²) <input type="number" id="dni" value="900" min="0" max="1200" oninput="State.sun.dni=+this.value; draw(); simSave();"></label>
+    
+    <label>Base DHI (W/m²) <input type="number" id="dhi" value="150" min="0" max="400" oninput="State.sun.dhi=+this.value; draw(); simSave();"></label>
+    
+    <label>Rays <span id="rv">80</span></label>
+    <input type="range" id="rc" min="10" max="300" value="80" oninput="rv.textContent=this.value">
+    <label>Max Bounces <span id="mbv">12</span></label>
+    <input type="range" id="mb" min="1" max="50" value="12" oninput="mbv.textContent=this.value">
+  </div>
 
     <div class="group">
       <h3>Source Line</h3>

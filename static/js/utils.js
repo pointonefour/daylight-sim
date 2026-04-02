@@ -32,14 +32,7 @@ function calcSolar(lat, day, time, sysAz) {
 }
 
 function getSolarInputs() {
-  return {
-    lat:   parseFloat(document.getElementById('lat').value),
-    day:   parseFloat(document.getElementById('day').value),
-    time:  parseFloat(document.getElementById('time').value),
-    sysAz: parseFloat(document.getElementById('sysaz').value),
-    dni:   parseFloat(document.getElementById('dni').value),
-    dhi:   parseFloat(document.getElementById('dhi').value),
-  };
+  return State.sun;
 }
 
 // ── VIEWPORT-AWARE COORDINATE TRANSFORMS ──────────────────
