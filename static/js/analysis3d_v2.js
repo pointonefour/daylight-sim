@@ -175,8 +175,17 @@ async function runTrace3D() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-
-    const data = await res.json();
+    const raw = await res.text();
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch (_err) {
+      const looksLikeHtml = raw.trim().startsWith('<');
+      if (looksLikeHtml) {
+        throw new Error('The backend returned an HTML error page instead of JSON. Check Railway runtime logs for the first traceback after the /trace3d request.');
+      }
+      throw new Error('The backend returned an invalid response for 3D tracing.');
+    }
     if (data.error) {
       if (data.viz_png_base64) {
         A3D.lastStats = data.stats || null;
